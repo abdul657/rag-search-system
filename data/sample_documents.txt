@@ -1,0 +1,5 @@
+Python is a high-level programming language known for its simplicity.
+Machine learning involves training algorithms on data to make predictions.
+FastAPI is a modern web framework for building APIs with Python.
+Vector databases store and retrieve data based on similarity.
+Natural language processing helps computers understand human language.

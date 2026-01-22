@@ -1,0 +1,11 @@
+## If not installed the following should be installed before runnig the main.py file
+#FastAPI "" -m pip install fastapi uvicorn
+#  Install Python 3.10 or 3.11 or else
+# The issue is caused by PyTorch not supporting Python 3.14 yet,
+# which means sentence-transformers cannot load its backend.
+# should not use powershell for compiller in vsc prefered terminal git bash.
+# remove or comment out open ai keys from .env fileif not using openai api.
+#http://localhost:8000/docs (server for documentations on local server)
+#http://127.0.0.1:8000/ (for local server)
+
+#Integrate with LLMs for full RAG capabilities (next step)
