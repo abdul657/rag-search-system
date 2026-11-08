@@ -1,64 +1,104 @@
+import logging
+
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+
+from config import get_settings
 from models import Document, Query, SearchResponse
 from retrieval import RetrievalPipeline
-import uvicorn
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 app = FastAPI(
     title="RAG Search System",
-    description="Retrieval-Augmented Generation Search API",
-    version="1.0.0"
+    description="Semantic retrieval API using Sentence Transformers and Pinecone.",
+    version="1.1.0",
 )
 
-# Add CORS middleware
+allowed_origins = [
+    origin.strip()
+    for origin in settings.cors_origins.split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
-# Initialize retrieval pipeline
-pipeline = RetrievalPipeline()
+
+def get_pipeline() -> RetrievalPipeline:
+    """Build the embedding and vector-store clients only when required."""
+    pipeline = getattr(app.state, "pipeline", None)
+    if pipeline is not None:
+        return pipeline
+
+    if not settings.pinecone_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Search backend is not configured. Set PINECONE_API_KEY.",
+        )
+
+    try:
+        pipeline = RetrievalPipeline()
+        app.state.pipeline = pipeline
+        return pipeline
+    except Exception as exc:
+        logger.exception("Unable to initialize retrieval pipeline")
+        raise HTTPException(
+            status_code=503,
+            detail="Search backend could not be initialized. Check configuration and service availability.",
+        ) from exc
+
 
 @app.get("/")
-def read_root():
+def read_root() -> dict:
     return {
         "message": "RAG Search System API",
-        "version": "1.0.0",
+        "version": app.version,
         "endpoints": {
             "/index": "POST - Index documents",
             "/search": "POST - Search documents",
-            "/health": "GET - Health check"
-        }
+            "/health": "GET - Liveness check",
+        },
+        "docs": "/docs",
     }
 
+
 @app.post("/index", status_code=201)
-def index_documents(documents: List[Document]):
-    """Index documents into the vector store"""
+def index_documents(documents: list[Document]) -> dict:
+    if not documents:
+        raise HTTPException(status_code=400, detail="Provide at least one document.")
+
     try:
-        result = pipeline.index_documents(documents)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return get_pipeline().index_documents(documents)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Document indexing failed")
+        raise HTTPException(status_code=500, detail="Document indexing failed.") from exc
+
 
 @app.post("/search", response_model=SearchResponse)
-def search_documents(query: Query):
-    """Search for relevant documents"""
+def search_documents(query: Query) -> SearchResponse:
     try:
-        results = pipeline.search(query)
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return get_pipeline().search(query)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Document search failed")
+        raise HTTPException(status_code=500, detail="Document search failed.") from exc
+
 
 @app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+def health_check() -> dict:
+    # Liveness only: external services are initialized lazily by /index and /search.
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)# Start the server
-
-# run "uvicorn main:app --reload" to start the server.
-
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
