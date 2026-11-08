@@ -1,48 +1,177 @@
-RAG Search System
-A lightweight Retrieval‑Augmented Generation (RAG) backend built with FastAPI, HuggingFace embeddings, and Pinecone vector search.
-This project demonstrates a clean, modular architecture for building intelligent search systems that combine semantic embeddings with fast vector retrieval.
+# RAG Search System
 
-PLS read the requirement.txt file to not run into any errors
+A small, modular semantic-search API built with **Python, FastAPI, Sentence Transformers, and Pinecone**. It demonstrates the retrieval part of a retrieval-augmented generation (RAG) workflow: ingest text, create embeddings, store vectors, and retrieve the most similar documents for a query.
 
-Features
+> This repository currently implements semantic retrieval. It does **not** call a generative LLM to compose answers. The API returns matched source documents and similarity scores.
 
-Semantic search using transformer embeddings
+## Architecture
 
-FastAPI backend with clean, modular endpoints
+```text
+Client
+  |
+  | POST /index                 POST /search
+  v                                  v
+FastAPI ----------------------> RetrievalPipeline
+                                  |          |
+                           EmbeddingService  VectorStore
+                           Sentence          Pinecone
+                           Transformers      cosine search
+```
 
-Vector store integration (Pinecone or local)
+- **API:** FastAPI request validation and interactive OpenAPI docs.
+- **Embeddings:** `sentence-transformers/all-MiniLM-L6-v2` (384-dimensional vectors by default).
+- **Vector database:** Pinecone serverless index with cosine similarity.
+- **Schemas/config:** Pydantic models and environment-based settings.
 
- Embeddings pipeline for document ingestion
+## Requirements
 
- Unit tests for API reliability
+- Python 3.10 or 3.11
+- A Pinecone API key and permission to create/use a serverless index
+- Internet access on the first run so Sentence Transformers can download its model
 
-Environment variable management with .env.example
+## Quick start
 
- Production‑ready project structure
+### 1. Clone and create an environment
 
-Add frontend UI
-
+```bash
 git clone https://github.com/abdul657/rag-search-system.git
 cd rag-search-system
+python -m venv .venv
+```
 
+Activate it:
 
-python -m venv venv
-source venv/bin/activate   # Mac/Linux
-venv\Scripts\activate      # Windows
+```bash
+# macOS / Linux
+source .venv/bin/activate
 
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+```
 
+### 2. Install dependencies
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+```
 
+### 3. Configure Pinecone
 
+Copy `.env.example` to `.env` and set your key:
+
+```bash
+# macOS / Linux
 cp .env.example .env
 
+# Windows PowerShell
+Copy-Item .env.example .env
+```
 
-PINECONE_API_KEY=your_key_here
-PINECONE_ENV=your_env_here
+Edit `.env`:
 
-uvicorn app.main:app --reload
+```dotenv
+PINECONE_API_KEY=replace_with_your_key
+INDEX_NAME=rag-search
+EMBEDDING_DIMENSION=384
+CORS_ORIGINS=http://localhost:5173
+```
 
-http://localhost:8000
+Never commit your real `.env` file or API key. The configured embedding model must produce the same dimension as the Pinecone index. The default model produces 384 dimensions.
 
-pytest
+### 4. Start the API
 
+```bash
+uvicorn main:app --reload
+```
+
+Open:
+- API overview: http://127.0.0.1:8000/
+- Swagger UI: http://127.0.0.1:8000/docs
+- Liveness check: http://127.0.0.1:8000/health
+
+The embedding model and Pinecone connection are initialized lazily when an indexing or search request first needs them. The health endpoint can therefore respond before external services are configured.
+
+### 5. Index sample documents
+
+In another terminal, with the virtual environment active:
+
+```bash
+python load_sample_data.py
+```
+
+Then query the API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"text":"What is semantic search?","top_k":3}'
+```
+
+Example indexing payload:
+
+```json
+[
+  {
+    "id": "doc-1",
+    "text": "FastAPI is a Python framework for building APIs.",
+    "metadata": {"source": "example"}
+  }
+]
+```
+
+### 6. Run tests
+
+```bash
+pytest -q
+```
+
+The API tests use a fake pipeline and do not require Pinecone credentials or a running vector database.
+
+## API reference
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/` | API information and endpoint list |
+| GET | `/health` | Process liveness check |
+| POST | `/index` | Embed and upsert a list of documents |
+| POST | `/search` | Embed a query and return nearest documents |
+
+### Search request
+
+```json
+{"text":"distributed systems observability","top_k":5}
+```
+
+`top_k` must be between 1 and 50. Search results include the document ID, stored text, similarity score, and metadata.
+
+## Project layout
+
+```text
+.
+├── config.py             # Environment-based settings
+├── embeddings.py         # Sentence Transformers wrapper
+├── load_sample_data.py   # Sample document ingestion client
+├── main.py               # FastAPI application
+├── models.py             # Pydantic request/response schemas
+├── retrieval.py          # Embedding + vector-search orchestration
+├── vector_store.py       # Pinecone integration
+├── data/
+│   └── sample_documents.txt
+├── tests/
+│   └── test_api.py
+├── .env.example
+├── .gitignore
+└── requirements.txt
+```
+
+## Current scope and limitations
+
+- This is a semantic retrieval API, not a complete chatbot or LLM answer-generation service.
+- Pinecone is the configured vector backend; a valid API key is required for indexing and search.
+- The default embedding model is downloaded by Sentence Transformers on first use.
+- The sample API is intended for local development. Before production use, add authentication, request rate limits, stricter CORS origins, structured tracing/metrics, and a deployment-specific secrets manager.
+
+## License
+
+No license is currently declared. Contact the repository owner before reusing this code in another project.
