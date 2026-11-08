@@ -1,36 +1,30 @@
 from embeddings import EmbeddingService
-from vector_store import VectorStore
 from models import Document, Query, SearchResponse
-from typing import List
+from vector_store import VectorStore
+
 
 class RetrievalPipeline:
-    def __init__(self):
+    """Coordinates document embeddings and vector search."""
+
+    def __init__(self) -> None:
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStore()
+        if self.embedding_service.get_dimension() != self.vector_store.dimension:
+            raise ValueError(
+                "Embedding model dimension does not match the configured Pinecone index dimension."
+            )
         self.vector_store.create_index()
-    
-    def index_documents(self, documents: List[Document]):
-        """Index documents into vector store"""
-        # Extract text from documents
-        texts = [doc.text for doc in documents]
-        
-        # Generate embeddings
+
+    def index_documents(self, documents: list[Document]) -> dict:
+        if not documents:
+            return {"status": "success", "indexed": 0}
+
+        texts = [document.text for document in documents]
         embeddings = self.embedding_service.encode_batch(texts)
-        
-        # Upload to vector store
         self.vector_store.upsert_documents(documents, embeddings)
-        
         return {"status": "success", "indexed": len(documents)}
-    
+
     def search(self, query: Query) -> SearchResponse:
-        """Search for relevant documents"""
-        # Generate query embedding
         query_embedding = self.embedding_service.encode_text(query.text)
-        
-        # Search vector store
         results = self.vector_store.search(query_embedding, query.top_k)
-        
-        return SearchResponse(
-            query=query.text,
-            results=results
-        )
+        return SearchResponse(query=query.text, results=results)
